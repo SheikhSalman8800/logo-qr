@@ -1,0 +1,26 @@
+{
+  "name": "logo-qr",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Client-side QR code generator with embedded logo, styling controls and PNG/SVG export.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test:scan": "node scripts/scan-test.mjs"
+  },
+  "dependencies": {
+    "qr-code-styling": "^1.9.2",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.7.0",
+    "canvas": "^3.2.3",
+    "jsdom": "^26.1.0",
+    "jsqr": "^1.4.0",
+    "pngjs": "^7.0.0",
+    "vite": "^6.4.3"
+  }
+}
