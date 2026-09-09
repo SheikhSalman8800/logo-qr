@@ -37,6 +37,31 @@ export const DEFAULT_SETTINGS = {
   errorCorrection: "M", // switches to H automatically when a logo is added
 };
 
+/**
+ * Normalise the payload before it reaches the library.
+ *
+ * qr-code-styling converts strings to bytes with `charCode & 0xff` (Latin-1),
+ * which silently corrupts anything outside Latin-1 (CJK, emoji, …) and leaves
+ * the charset ambiguous for scanners. Two fixes:
+ *  - http(s) URLs are serialised via `new URL().href`, exactly as a browser
+ *    would (percent-encoded path/query, punycode host). Pure ASCII, unambiguous.
+ *  - Anything else is UTF-8 encoded into a "binary string" (one char per byte),
+ *    so the library's Latin-1 pass emits correct UTF-8 bytes, which is what
+ *    every modern scanner assumes for Byte mode.
+ */
+export function encodeData(raw) {
+  const v = raw.trim() || PLACEHOLDER_URL;
+  // eslint-disable-next-line no-control-regex
+  if (/^[\x00-\x7f]*$/.test(v)) return v; // already ASCII – keep exactly what the user typed
+  try {
+    const u = new URL(v);
+    if (u.protocol === "http:" || u.protocol === "https:") return u.href;
+  } catch {
+    /* not a URL – fall through */
+  }
+  return String.fromCharCode(...new TextEncoder().encode(v));
+}
+
 /** Fraction of the QR *area* the logo occupies (side% squared). */
 export function logoAreaFraction(logoSizePct) {
   const side = logoSizePct / 100;
@@ -65,7 +90,7 @@ export function buildQrOptions(settings, size = 320, type = "canvas") {
     width: size,
     height: size,
     margin: Math.round(size * 0.04), // quiet zone
-    data: settings.url.trim() || PLACEHOLDER_URL,
+    data: encodeData(settings.url),
     image: hasLogo ? settings.logo : "",
     qrOptions: {
       typeNumber: 0, // auto

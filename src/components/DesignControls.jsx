@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import {
   DOT_TYPES,
   CORNER_SQUARE_TYPES,
@@ -29,28 +30,45 @@ function Select({ label, value, options, onChange }) {
   );
 }
 
+const HEX_RE = /^#[0-9a-fA-F]{6}$/;
+
 function ColorField({ label, value, onChange, disabled }) {
+  // Local draft so the user can type a hex code character by character;
+  // only complete, valid values are pushed up.
+  const [draft, setDraft] = useState(value);
+  useEffect(() => setDraft(value), [value]);
+
   return (
-    <label className={`field color-field ${disabled ? "disabled" : ""}`}>
+    <div className={`field color-field ${disabled ? "disabled" : ""}`}>
       <span className="field-label">{label}</span>
       <span className="color-row">
-        <input type="color" value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled} />
+        <input
+          type="color"
+          aria-label={`${label} colour picker`}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          disabled={disabled}
+        />
         <input
           type="text"
           className="color-hex"
-          value={value}
+          aria-label={`${label} hex value`}
+          value={draft}
           maxLength={7}
           disabled={disabled}
+          spellCheck={false}
           onChange={(e) => {
-            const v = e.target.value;
-            if (/^#[0-9a-fA-F]{6}$/.test(v)) onChange(v);
+            let v = e.target.value.trim();
+            if (v && !v.startsWith("#")) v = "#" + v;
+            setDraft(v);
+            if (HEX_RE.test(v)) onChange(v.toLowerCase());
           }}
-          onBlur={(e) => {
-            if (!/^#[0-9a-fA-F]{6}$/.test(e.target.value)) e.target.value = value;
+          onBlur={() => {
+            if (!HEX_RE.test(draft)) setDraft(value);
           }}
         />
       </span>
-    </label>
+    </div>
   );
 }
 

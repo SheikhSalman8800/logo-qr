@@ -30,6 +30,7 @@ npm run dev        # start the dev server, usually http://localhost:5173
 npm run build      # production build into ./dist
 npm run preview    # serve the production build locally
 npm run test:scan  # headless render + decode test (see below)
+npm run test:e2e   # browser end-to-end test; needs `npm run dev` running and Google Chrome installed
 ```
 
 `dist/` is static and can be dropped onto any static host (GitHub Pages, Netlify, S3, …).
@@ -54,7 +55,8 @@ src/
     ExportPanel.jsx        Off-screen render at export size, PNG/SVG/clipboard
     Presets.jsx
 scripts/
-  scan-test.mjs            Renders codes in Node and decodes them with jsQR
+  scan-test.mjs            Renders codes in Node and decodes them with ZXing + jsQR
+  e2e.mjs                  Drives the app in headless Chrome: every control, upload, export, preset
 ```
 
 ## How the error-correction / logo trade-off works
@@ -97,24 +99,47 @@ calculation in the same units. The cleared zone also snaps to an odd number of m
 the padding slider is taken from *inside* that zone, so the visible logo is slightly smaller
 than the slider value.
 
+### Text encoding
+
+`qr-code-styling` converts the payload to bytes with a Latin-1 mask, which silently corrupts
+characters outside Latin-1 (CJK, emoji, …). `encodeData()` in `src/lib/qrOptions.js` therefore
+normalises the payload first: http(s) URLs containing non-ASCII are serialised exactly as a
+browser would (`new URL(v).href`, i.e. percent-encoded path and punycode host), and any other
+non-ASCII text is UTF-8 encoded. Pure-ASCII input is passed through untouched.
+
 ### Other tips for reliable scanning
 
 - Keep strong contrast: a dark foreground on a light background. Avoid light-on-dark for print.
 - Don't remove the quiet zone (the light border) when placing the code in a layout.
 - Print at 2 cm / 0.8 in or larger. Prefer SVG or the 1024 px+ PNG for print.
-- Fancy dot styles ("dots", "classy") reduce the ink in each module. They scanned fine in our
-  tests but are slightly less forgiving than "square" at very small sizes.
+- Fancy dot styles ("dots", "classy") reduce the ink in each module. They scanned fine with
+  ZXing in every test, but the simpler jsQR decoder gives up on "dots" at 2048 px. If a code
+  must work with every scanner app, "square" or "rounded" is the safest choice.
 - **Always test-scan** the final asset with a phone before you print or publish it.
 
 ## Scan test
 
 `npm run test:scan` renders a matrix of codes (every dot style, 20 % and 25 % logos, with and
-without padding, transparent background, 512 px and 2048 px) using the exact option mapping the
-app uses, then decodes each PNG with [`jsQR`](https://github.com/cozmo/jsQR) and checks the URL
-round-trips. The rendered PNGs are written to `test-output/` so you can also scan them with a
-real phone.
+without padding, transparent background, 512 px and 2048 px, unicode URLs and text, a
+310-character URL) using the exact option mapping the app uses, then decodes each PNG with two
+independent decoders and checks the payload round-trips:
 
+- [ZXing](https://github.com/zxing-cpp/zxing-cpp) via `zxing-wasm`, the engine most phone
+  scanner apps derive from. This is the authoritative result.
+- [`jsQR`](https://github.com/cozmo/jsQR), a stricter pure-JS decoder, reported for information.
+
+The rendered PNGs are written to `test-output/` so you can also scan them with a real phone.
 The test uses `jsdom` and `node-canvas` (dev dependencies only) to run the library in Node.
+
+## Browser end-to-end test
+
+`npm run test:e2e` (with `npm run dev` running in another terminal) drives the real app in
+headless Chrome through `playwright-core`, using the Google Chrome already installed on the
+machine. It covers URL validation cases, PNG/JPG/SVG uploads and rejections, every design
+control, the risk warnings, rapid-update races, PNG exports at all three sizes, SVG export,
+clipboard copy, presets across a reload, keyboard access and the mobile layout. Exported files
+are decoded with ZXing and jsQR to prove they scan. Pass a URL to test another server, e.g.
+`node scripts/e2e.mjs http://localhost:4173` after `npm run preview`.
 
 ## Stretch goals
 
@@ -129,4 +154,7 @@ The test uses `jsdom` and `node-canvas` (dev dependencies only) to run the libra
 - "Copy to clipboard" needs a secure context (`https://` or `localhost`) and a browser with
   `ClipboardItem` support (Chrome, Edge, Safari 13.1+, Firefox 127+). The button is disabled
   otherwise.
-- SVG logos must have a `width`/`height` or `viewBox`; otherwise some browsers draw them at 0×0.
+- SVG logos must have a `viewBox` or `width`/`height`; otherwise browsers fall back to 300×150
+  and the logo renders cropped. The app warns when it detects this.
+- Non-square logos are fitted inside a square zone and look small. The app warns when the
+  aspect ratio is beyond 3:2; pad the logo to a square canvas for best results.

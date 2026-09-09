@@ -81,21 +81,22 @@ export default function ExportPanel({ settings, onExported }) {
     <section className="panel">
       <h2>Export</h2>
 
-      <label className="field">
-        <span className="field-label">PNG resolution</span>
-        <div className="segmented">
+      <div className="field">
+        <span className="field-label" id="png-res-label">PNG resolution</span>
+        <div className="segmented" role="group" aria-labelledby="png-res-label">
           {PNG_SIZES.map((s) => (
             <button
               key={s}
               type="button"
               className={s === pngSize ? "active" : ""}
+              aria-pressed={s === pngSize}
               onClick={() => setPngSize(s)}
             >
               {s}px
             </button>
           ))}
         </div>
-      </label>
+      </div>
 
       <div className="export-actions">
         <button type="button" className="btn primary" onClick={downloadPng} disabled={busy !== null}>

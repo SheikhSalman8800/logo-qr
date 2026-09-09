@@ -2,8 +2,12 @@
  * Headless scan test.
  *
  * Renders QR codes with an embedded logo using the exact option mapping the
- * app uses (src/lib/qrOptions.js), then decodes the resulting PNG with jsQR
- * and checks the payload round-trips. Run with `npm run test:scan`.
+ * app uses (src/lib/qrOptions.js), then decodes the resulting PNG with two
+ * independent decoders and checks the payload round-trips:
+ *  - ZXing (WASM build) – the engine most phone scanners derive from; authoritative.
+ *  - jsQR – stricter/simpler; reported for information (it gives up on the
+ *    "dots" style at very large sizes and on non-UTF-8 text).
+ * Run with `npm run test:scan`.
  *
  * Output PNGs are written to ./test-output for manual phone scanning.
  */
@@ -13,6 +17,7 @@ import { JSDOM } from "jsdom";
 import nodeCanvas from "canvas";
 import { PNG } from "pngjs";
 import jsQR from "jsqr";
+import { readBarcodes } from "zxing-wasm/reader";
 import QRCodeStyling from "qr-code-styling";
 import { buildQrOptions, DEFAULT_SETTINGS, DOT_TYPES } from "../src/lib/qrOptions.js";
 import { assessLogoRisk } from "../src/lib/validation.js";
@@ -46,7 +51,7 @@ async function renderPng(settings, size) {
   return Buffer.from(buf);
 }
 
-function decode(pngBuffer) {
+function toRgba(pngBuffer) {
   const png = PNG.sync.read(pngBuffer);
   // Composite onto white so transparent backgrounds decode like a real print.
   const data = new Uint8ClampedArray(png.data.length);
@@ -57,8 +62,14 @@ function decode(pngBuffer) {
     data[i + 2] = Math.round(png.data[i + 2] * a + 255 * (1 - a));
     data[i + 3] = 255;
   }
-  const result = jsQR(data, png.width, png.height, { inversionAttempts: "dontInvert" });
-  return result?.data ?? null;
+  return { data, width: png.width, height: png.height };
+}
+
+async function decode(pngBuffer) {
+  const img = toRgba(pngBuffer);
+  const [zx] = await readBarcodes(img, { formats: ["QRCode"], tryHarder: true });
+  const js = jsQR(img.data, img.width, img.height, { inversionAttempts: "dontInvert" });
+  return { zxing: zx?.text ?? null, jsqr: js?.data ?? null };
 }
 
 const logo = makeLogoDataUrl();
@@ -77,6 +88,10 @@ const cases = [
   { label: "no logo M", s: { logo: null, errorCorrection: "M" }, expectScan: true },
   { label: "small 512px 20% H", s: { logoSize: 20 }, size: 512, expectScan: true },
   { label: "large 2048px 25% H", s: { logoSize: 25 }, size: 2048, expectScan: true },
+  { label: "dots 2048px 20% H", s: { logoSize: 20, dotType: "dots" }, size: 2048, expectScan: true },
+  { label: "unicode URL 25% H", s: { logoSize: 25, url: "https://münchen.de/straße?q=日本語" }, expectScan: true, expectData: "https://xn--mnchen-3ya.de/stra%C3%9Fe?q=%E6%97%A5%E6%9C%AC%E8%AA%9E" },
+  { label: "plain unicode text 20% H", s: { url: "Hallo Welt – 日本語 🚀" }, expectScan: true, expectData: "Hallo Welt – 日本語 🚀" },
+  { label: "long URL 310 chars 25% H", s: { logoSize: 25, url: "https://example.com/" + "a".repeat(280) + "?q=1234567" }, expectScan: true, expectData: "https://example.com/" + "a".repeat(280) + "?q=1234567" },
   // Informational: what the warning system flags. Not asserted.
   { label: "25% at L (warned)", s: { logoSize: 25, errorCorrection: "L" }, expectScan: null },
   { label: "25% at M (warned)", s: { logoSize: 25, errorCorrection: "M" }, expectScan: null },
@@ -91,8 +106,10 @@ for (const c of cases) {
   const png = await renderPng(settings, size);
   const file = path.join(OUT_DIR, c.label.replace(/[^a-z0-9]+/gi, "_") + ".png");
   fs.writeFileSync(file, png);
-  const decoded = decode(png);
-  const ok = decoded === URL_UNDER_TEST;
+  const expected = c.expectData ?? settings.url;
+  const decoded = await decode(png);
+  const ok = decoded.zxing === expected;
+  const jsNote = decoded.jsqr === expected ? "jsqr=ok " : decoded.jsqr === null ? "jsqr=none" : "jsqr=diff";
   let status;
   if (c.expectScan === null) status = ok ? "info  ✓ scans" : "info  ✗ no scan";
   else if (ok === c.expectScan) status = "PASS";
@@ -101,7 +118,7 @@ for (const c of cases) {
     failures++;
   }
   console.log(
-    `${status.padEnd(15)} ${c.label.padEnd(28)} risk=${risk.level.padEnd(7)} decoded=${decoded ? "yes" : "no "} -> ${path.relative(process.cwd(), file)}`
+    `${status.padEnd(15)} ${c.label.padEnd(28)} risk=${risk.level.padEnd(7)} zxing=${ok ? "ok  " : "FAIL"} ${jsNote} -> ${path.relative(process.cwd(), file)}`
   );
 }
 

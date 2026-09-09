@@ -1,7 +1,38 @@
 import { useRef, useState } from "react";
 
 const ACCEPTED = ["image/png", "image/jpeg", "image/svg+xml"];
+const ACCEPTED_EXT = /\.(png|jpe?g|svg)$/i;
+
+/** Some OS/browser combos report an empty MIME type for dropped files – fall back to the extension. */
+function isAccepted(file) {
+  return ACCEPTED.includes(file.type) || (!file.type && ACCEPTED_EXT.test(file.name));
+}
 const MAX_BYTES = 2 * 1024 * 1024;
+
+/** Non-blocking advice about a logo that will render poorly. Returns a string or null. */
+async function inspectLogo(file, dataUrl) {
+  if (file.type === "image/svg+xml" || /\.svg$/i.test(file.name)) {
+    const text = await file.text();
+    const hasViewBox = /<svg[^>]*\sviewBox=/i.test(text);
+    const hasSize = /<svg[^>]*\swidth=/i.test(text) && /<svg[^>]*\sheight=/i.test(text);
+    if (!hasViewBox && !hasSize) {
+      return "This SVG has no viewBox or width/height, so browsers can't size it and it may render cropped. Add a viewBox to the <svg> tag.";
+    }
+  }
+  const dims = await new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight });
+    img.onerror = () => resolve(null);
+    img.src = dataUrl;
+  });
+  if (dims && dims.w && dims.h) {
+    const ratio = dims.w / dims.h;
+    if (ratio > 1.5 || ratio < 1 / 1.5) {
+      return `Logo is ${dims.w}×${dims.h} (not square). It is fitted inside a square zone, so it will look small. Pad it to a square canvas for a bigger logo.`;
+    }
+  }
+  return null;
+}
 
 function readAsDataUrl(file) {
   return new Promise((resolve, reject) => {
@@ -16,11 +47,13 @@ export default function LogoUpload({ logo, logoName, onChange }) {
   const inputRef = useRef(null);
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState(null);
+  const [hint, setHint] = useState(null);
 
   async function handleFile(file) {
     setError(null);
+    setHint(null);
     if (!file) return;
-    if (!ACCEPTED.includes(file.type)) {
+    if (!isAccepted(file)) {
       setError("Unsupported file type – please use PNG, JPG or SVG.");
       return;
     }
@@ -31,6 +64,7 @@ export default function LogoUpload({ logo, logoName, onChange }) {
     try {
       const dataUrl = await readAsDataUrl(file);
       onChange({ logo: dataUrl, logoName: file.name });
+      setHint(await inspectLogo(file, dataUrl));
     } catch {
       setError("Could not read that file.");
     }
@@ -58,7 +92,10 @@ export default function LogoUpload({ logo, logoName, onChange }) {
               <button
                 type="button"
                 className="btn small ghost"
-                onClick={() => onChange({ logo: null, logoName: "" })}
+                onClick={() => {
+                  setHint(null);
+                  onChange({ logo: null, logoName: "" });
+                }}
               >
                 Remove
               </button>
@@ -99,6 +136,7 @@ export default function LogoUpload({ logo, logoName, onChange }) {
       />
 
       {error && <p className="note warn">⚠ {error}</p>}
+      {hint && logo && <p className="note warn">⚠ {hint}</p>}
       {!logo && (
         <p className="note muted">
           Optional. Adding a logo automatically raises error correction to <strong>H</strong>.

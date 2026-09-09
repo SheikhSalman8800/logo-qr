@@ -2,7 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import QRCodeStyling from "qr-code-styling";
 import { buildQrOptions } from "../lib/qrOptions.js";
 
-const PREVIEW_SIZE = 320;
+const PREVIEW_CSS_SIZE = 320;
+// Render at 2x and scale down with CSS: crisp on retina screens and much
+// easier for a phone to scan straight off the monitor.
+const PREVIEW_SIZE = PREVIEW_CSS_SIZE * 2;
 
 /**
  * Owns a single QRCodeStyling instance. On every settings change it calls
@@ -37,7 +40,12 @@ export default function QrPreview({ settings, riskLevel, showScanReminder }) {
     <section className="panel preview-panel">
       <h2>Preview</h2>
       <div className={`preview-frame ${settings.bgTransparent ? "checker" : ""}`}>
-        <div ref={containerRef} className="qr-container" aria-live="polite" />
+        <div
+          ref={containerRef}
+          className="qr-container"
+          style={{ width: PREVIEW_CSS_SIZE, maxWidth: "100%" }}
+          aria-live="polite"
+        />
         {!ready && <div className="preview-loading">Rendering…</div>}
       </div>
       {!hasData && <p className="note muted">Showing a placeholder – enter a URL above.</p>}
